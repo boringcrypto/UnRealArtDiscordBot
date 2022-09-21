@@ -1,0 +1,24 @@
+{
+  "name": "unrealartdiscordbot",
+  "version": "1.0.0",
+  "description": "Used to render images automatically on MidJourney for an interactive art installation.",
+  "type": "module",
+  "main": "bot.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/boringcrypto/UnRealArtDiscordBot.git"
+  },
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/boringcrypto/UnRealArtDiscordBot/issues"
+  },
+  "homepage": "https://github.com/boringcrypto/UnRealArtDiscordBot#readme",
+  "dependencies": {
+    "discord.js": "^14.3.0",
+    "puppeteer": "^18.0.1"
+  }
+}
