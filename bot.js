@@ -224,7 +224,7 @@ const requestListener = function (req, res) {
         res.writeHead(200);
         res.end(JSON.stringify({
             request: request_map[request_number],
-            queue: requests.map(r => r.request_number).indexOf(request_number)
+            queue: requests.map(r => r.request_number).indexOf(request_number) + 1
         }));
     } else if (req.url.startsWith("/upscale/")) {
         const params = req.url.substr(9).split("/")
