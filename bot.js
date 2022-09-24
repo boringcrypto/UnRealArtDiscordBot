@@ -1,9 +1,11 @@
 import env from "./token.js"
 import puppeteer from "puppeteer"
 import http from "http"
+import fs from "fs"
 
 class Request {
     constructor(prompt) {
+        this.start_time = 0
         this.prev_img_src
         this.prompt = prompt
         this.percentage = 0
@@ -16,6 +18,8 @@ class Request {
         this.author = ""
         this.title = ""
         this.description = ""
+        this.publish_time = null
+        this.error = ""
         request_map[this.request_number] = this
     }
 }
@@ -23,26 +27,23 @@ class Request {
 let browser
 let page
 let current_request
-let requests = [
-    //new Request("vampire, colorful dragons, bats, victoria secret, detailed symmetrical face, photorealism, 8k --testp --creative --ar 3:2"),
-    //new Request("portrait of pretty fairy, colorful jellyfish, butterflies, victoria secret, detailed symmetrical face, photorealism, 8k --testp --creative --ar 3:2")
-]
-let request_map = {}
 let upscale_buttons = {}
-let published = [{
-    prompt: 'fairy with wings, victoria secret, colorful little dragons, bats, intricate tattoos, detailed symmetrical face, photorealism, 8k --testp --creative --ar 3:2 --upbeta',  
-    percentage: '100',
-    job_id: '8f1df69b-ffbf-4bd2-a092-ba685cf1196c',
-    img_src: 'https://media.discordapp.net/ephemeral-attachments/1021424638829531198/1022140830569476116/UnRealArt_fairy_with_wings_victoria_secret_colorful_little_drag_8f1df69b-ffbf-4bd2-a092-ba685cf1196c.png',
-    request_number: '629655321',
-    done: true,
-    accepted: true,
-    published: true,
-    author: 'Bart Jellema',
-    title: 'Fairy',
-    description: 'Desc',
-    prev_img_src: 'https://media.discordapp.net/ephemeral-attachments/1021424638829531198/1022140354381758535/UnRealArt_fairy_with_wings_victoria_secret_colorful_little_drag_335dc5d5-cc66-4bfc-a8e5-22be318ea081.png?width=400&height=267'
-}]
+let published = []
+try {
+    published = JSON.parse(fs.readFileSync('published.json'))
+} catch (e) {
+    console.log(e)
+}
+let requests = []
+let request_map = {}
+for (let i in published) {
+    request_map[published[i].request_number] = published[i]
+}
+
+function save() {
+    fs.writeFileSync('published_backup.json', JSON.stringify(published));
+    fs.writeFileSync('published.json', JSON.stringify(published));
+}
 
 async function login() {
     console.log("Logging in")
@@ -134,15 +135,21 @@ async function loop() {
 }
 
 async function inner_loop() {
+    if (current_request && current_request.start_time && Date.now() - current_request.start_time > (3 * 60 * 1000)) {
+        // Request is taking too long
+        current_request.error = "Timeout, something went wrong. Please try again."
+        current_request = null
+    }
+
     const img_src = await get_img_src()
     if (current_request && !img_src) {
-        console.log("No img src")
         return
     }
 
     if (!current_request && requests.length) {
         current_request = requests.splice(0, 1)[0]
         current_request.prev_img_src = img_src
+        current_request.start_time = Date.now()
 
         if (!current_request.done) {
             await send_imagine_command(current_request.prompt)
@@ -177,11 +184,14 @@ async function inner_loop() {
                         }    
                     } else {
                         current_request.published = true
+                        current_request.publish_time = Date.now()
                         published.push(current_request)
+                        save()
 
                         console.log("Published:", current_request.img_src)
                     }
             
+                    current_request.start_time = 0
                     current_request = null
                 }
             }
@@ -200,7 +210,7 @@ const requestListener = function (req, res) {
 
     if (req.url.startsWith("/request/")) {
         const prompt = decodeURI(req.url.substr(9))
-        if (/^[ a-zA-Z0-9\-\:\,\|]*$/.test(prompt)) {
+        if (/^[ a-zA-Z0-9'"\-\:\,\|]*$/.test(prompt)) {
             const request = new Request(prompt)
             requests.push(request)
             res.writeHead(200);
@@ -212,7 +222,10 @@ const requestListener = function (req, res) {
     } else if (req.url.startsWith("/check/")) {
         const request_number = decodeURI(req.url.substr(7))
         res.writeHead(200);
-        res.end(JSON.stringify(request_map[request_number]));
+        res.end(JSON.stringify({
+            request: request_map[request_number],
+            queue: requests.map(r => r.request_number).indexOf(request_number)
+        }));
     } else if (req.url.startsWith("/upscale/")) {
         const params = req.url.substr(9).split("/")
         const request_number = decodeURI(params[0])
@@ -228,7 +241,14 @@ const requestListener = function (req, res) {
     } else if (req.url.startsWith("/show/")) {
         res.writeHead(200);
         if (published.length) {
-            res.end(JSON.stringify(published[published.length - 1]));
+            let shown = published[published.length - 1];
+            if (Date.now() - (shown.publish_time || 0) > 120 * 1000) {
+                shown = published[Math.floor(Date.now() / (20 * 1000)) % published.length];
+            }
+            res.end(JSON.stringify({
+                image: shown,
+                count: published.length
+            }));
         } else {
             res.end("");
         }
@@ -239,4 +259,4 @@ const requestListener = function (req, res) {
 }
   
 const server = http.createServer(requestListener);
-server.listen(1234);
+server.listen(12345);
