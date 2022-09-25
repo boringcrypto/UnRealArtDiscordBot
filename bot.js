@@ -73,16 +73,18 @@ async function login() {
 }
 
 async function get_img_src() {
-    try {
-        //await page.waitForSelector("main ol li:last-of-type img[alt='Image']");
-        const element = await page.$("main ol li:last-of-type img[alt='Image']")
-        const img_src = await element.evaluate(node => node.src)
+    let img_src = ""
+    let innerText = ""
 
-        return img_src            
-    } catch {
-        //console.log("Problem loading img_src")
-        return ""
-    }
+    try {
+        const element = await page.$("main ol li:last-of-type")
+        innerText = await element.evaluate(node => node.innerText)
+    } catch { }
+    try {
+        const image = await page.$("main ol li:last-of-type img[alt='Image']")
+        img_src = await image.evaluate(node => node.src)
+    } catch { }
+    return {img_src, innerText}
 }
 
 async function init() {
@@ -166,8 +168,14 @@ async function inner_loop() {
         current_request = null
     }
 
-    let img_src = await get_img_src()
+    let {img_src, innerText} = await get_img_src()
+
     if (current_request && !img_src) {
+        if (current_request.status == "Painting" && innerText.indexOf("Banned word!") >= 0) {
+            current_request.error = "Banned word used, please keep it friendly..."
+            current_request.status = "Error"
+            current_request = null    
+        }
         return
     }
 
@@ -175,8 +183,8 @@ async function inner_loop() {
         current_request = requests.splice(0, 1)[0]
         current_request.prev_img_src = img_src
         current_request.start_time = Date.now()
-        current_request.status = "Painting"
         await send_imagine_command(current_request.prompt)
+        current_request.status = "Painting"
     }
 
     if (current_request) {
@@ -189,18 +197,19 @@ async function inner_loop() {
                     const info = /.*\/([^/]*)_progress_image_([0-9]+).*/.exec(img_src)
                     current_request.img_src = img_src + "?width=400&height=267"
                     current_request.job_id = info[1]
-                    current_request.percentage = info[2]
+                    current_request.percentage = Math.floor(parseInt(info[2] * 0.66)).toString()
                     console.log("Job: ", current_request.job_id, " ", current_request.percentage, "%")
                 } else {
                     if (current_request.status == "Painting") {
                         current_request.img_src = img_src
-                        current_request.percentage = "100"
+                        current_request.percentage = "66"
                         current_request.status = "Upscaling"
                         console.log("Done:", current_request.img_src)
     
                         await upscale()
                     } else if (current_request.status == "Upscaling") {
                         current_request.img_src = img_src
+                        current_request.percentage = "100"
                         current_request.status = "Finished"
                         current_request.start_time = 0
                         console.log("Finished:", current_request.img_src)
