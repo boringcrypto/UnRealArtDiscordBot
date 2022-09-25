@@ -145,16 +145,16 @@ async function upscale() {
                 console.log("Upscale button clicked")
                 await page.waitForTimeout(3000)
             } else {
-                current_request.status = "Error"
-                current_request.error = "Something went wrong, please try again. (Wrong button)"
+                //current_request.status = "Error"
+                //current_request.error = "Something went wrong, please try again. (Wrong button)"
             }
         } else {
-            current_request.status = "Error"
-            current_request.error = "Something went wrong, please try again. (No button)"
+            //current_request.status = "Error"
+            //current_request.error = "Something went wrong, please try again. (No button)"
         }
     } catch {
-        current_request.status = "Error"
-        current_request.error = "Something went wrong, please try again. (No button in page)"
+        //current_request.status = "Error"
+        //current_request.error = "Something went wrong, please try again. (No button in page)"
     }
 }
 
