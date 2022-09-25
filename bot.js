@@ -12,9 +12,9 @@ class Request {
         this.job_id = ""
         this.img_src = ""
         this.request_number = Math.floor(Math.random() * 1000000000).toString()
-        this.done = false
-        this.accepted = null
-        this.published = false
+
+        this.status = "Waiting"
+
         this.author = ""
         this.title = ""
         this.description = ""
@@ -134,14 +134,39 @@ async function loop() {
     }
 }
 
+async function upscale() {
+    try {
+        const button = await page.waitForSelector("main ol li:last-of-type button")
+        await page.waitForTimeout(1000)
+        if (button) {
+            const button_text = await button.evaluate(node => node.innerText)
+            if (button_text == "U1") {
+                await button.click("main ol li:last-of-type button")
+                console.log("Upscale button clicked")
+                await page.waitForTimeout(3000)
+            } else {
+                current_request.status = "Error"
+                current_request.error = "Something went wrong, please try again. (Wrong button)"
+            }
+        } else {
+            current_request.status = "Error"
+            current_request.error = "Something went wrong, please try again. (No button)"
+        }
+    } catch {
+        current_request.status = "Error"
+        current_request.error = "Something went wrong, please try again. (No button in page)"
+    }
+}
+
 async function inner_loop() {
-    if (current_request && current_request.start_time && Date.now() - current_request.start_time > (3 * 60 * 1000)) {
+    if (current_request && current_request.start_time && Date.now() - current_request.start_time > (4 * 60 * 1000)) {
         // Request is taking too long
         current_request.error = "Timeout, something went wrong. Please try again."
+        current_request.status = "Error"
         current_request = null
     }
 
-    const img_src = await get_img_src()
+    let img_src = await get_img_src()
     if (current_request && !img_src) {
         return
     }
@@ -150,50 +175,42 @@ async function inner_loop() {
         current_request = requests.splice(0, 1)[0]
         current_request.prev_img_src = img_src
         current_request.start_time = Date.now()
-
-        if (!current_request.done) {
-            await send_imagine_command(current_request.prompt)
-        } else {
-            upscale_buttons[current_request.request_number].click()
-        }
+        current_request.status = "Painting"
+        await send_imagine_command(current_request.prompt)
     }
 
     if (current_request) {
         if (img_src != current_request.prev_img_src) {
-            if (img_src != current_request.img_src) {
-                current_request.img_src = img_src
+            img_src = img_src.split("?")[0]
+
+            if (img_src != current_request.img_src && current_request.img_src != img_src + "?width=400&height=267" ) {
+                console.log(img_src)
                 if (img_src.indexOf("_progress_image_") >= 0) {
                     const info = /.*\/([^/]*)_progress_image_([0-9]+).*/.exec(img_src)
+                    current_request.img_src = img_src + "?width=400&height=267"
                     current_request.job_id = info[1]
                     current_request.percentage = info[2]
                     console.log("Job: ", current_request.job_id, " ", current_request.percentage, "%")
                 } else {
-                    current_request.img_src = current_request.img_src.split("?")[0]
-
-                    if (!current_request.accepted) {
+                    if (current_request.status == "Painting") {
+                        current_request.img_src = img_src
                         current_request.percentage = "100"
-                        current_request.done = true
+                        current_request.status = "Upscaling"
                         console.log("Done:", current_request.img_src)
     
-                        const button = await page.$("main ol li:last-of-type button")
-                        if (button) {
-                            const button_text = await button.evaluate(node => node.innerText)
-                            if (button_text == "U1") {
-                                upscale_buttons[current_request.request_number] = button
-                            }    
-                        }    
+                        await upscale()
+                    } else if (current_request.status == "Upscaling") {
+                        current_request.img_src = img_src
+                        current_request.status = "Finished"
+                        current_request.start_time = 0
+                        console.log("Finished:", current_request.img_src)
+                        current_request = null
                     } else {
-                        current_request.published = true
-                        current_request.publish_time = Date.now()
-                        published.push(current_request)
-                        save()
-
-                        console.log("Published:", current_request.img_src)
+                        console.log("Other")
                     }
-            
-                    current_request.start_time = 0
-                    current_request = null
                 }
+            } else if (current_request.status == "Upscaling") {
+                await upscale()
             }
         }
     }
@@ -226,18 +243,22 @@ const requestListener = function (req, res) {
             request: request_map[request_number],
             queue: requests.map(r => r.request_number).indexOf(request_number) + 1
         }));
-    } else if (req.url.startsWith("/upscale/")) {
+    } else if (req.url.startsWith("/publish/")) {
         const params = req.url.substr(9).split("/")
         const request_number = decodeURI(params[0])
-        request_map[request_number].author = decodeURI(params[1])
-        request_map[request_number].title = decodeURI(params[2])
-        request_map[request_number].description = decodeURI(params[3])
-        if (upscale_buttons[request_number]) {
-            request_map[request_number].accepted = true
-            requests.push(request_map[request_number])
-        }
+        const request = request_map[request_number]
+        request.author = decodeURI(params[1])
+        request.title = decodeURI(params[2])
+        request.description = decodeURI(params[3])
+        request.publish_time = Date.now()
+        request.status = "Published"
+        published.push(request)
+        save()
+
+        console.log("Published:", request.img_src)
+
         res.writeHead(200);
-        res.end(JSON.stringify(request_map[request_number]));
+        res.end(JSON.stringify(request));
     } else if (req.url.startsWith("/show/")) {
         res.writeHead(200);
         if (published.length) {
